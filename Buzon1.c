@@ -75,7 +75,7 @@ int main(void){
             printf("Error al crear un proceso hijo");
             return -1;
         }else if(pid==0){   //es el hijo
-            srand(time(NULL));
+            srand(getpid());
 
             struct mensaje men;
             men.tipo=11;
