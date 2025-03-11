@@ -8,8 +8,12 @@
 #include <sys/shm.h>
 #include "filosofar.h"
 
-void eliminar_sem(int id_sem){
-    int err=semctl(id_sem, 0, IPC_RMID);    
+int shm_inicio;
+int sem_inicio;
+pid_t pid_hijo;
+
+void eliminar_sem(){
+    int err=semctl(sem_inicio, 0, IPC_RMID);    
     if(err==-1){
         printf("Error al eliminar semáforo...\n");
         return;
@@ -19,13 +23,29 @@ void eliminar_sem(int id_sem){
 
 
 
-void liberar_mem(int shm_id){
-    int err=shmctl(shm_id, IPC_RMID, NULL);
+void liberar_mem(){
+    int err=shmctl(shm_inicio, IPC_RMID, NULL);
     if(err==-1){
         printf("Error al liberar memoria compartida...\n");
         return;
     }
 }
+
+
+
+void manejadora_salida(int sig) {
+    
+    if(getpid()==pid_hijo){
+        exit(0);
+    }
+    printf("\nHas pulsado CTRL+C. Eliminando semáforo y memoria compartida.\n");
+    wait(NULL);
+    eliminar_sem();
+    liberar_mem();
+    exit(0);
+}
+
+
 
 int main (int argc, char *argv[]){
     int err;
@@ -37,6 +57,7 @@ int main (int argc, char *argv[]){
    //esperar muerte hijos sin cpu
    //eliminar IPC
    //llamar FI_fin
+   
 
 
     
@@ -55,6 +76,13 @@ int main (int argc, char *argv[]){
         return -2;
     }
 
+    //manejadora
+    struct sigaction sa;
+    sa.sa_handler = manejadora_salida;
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = 0;
+    sigaction(SIGINT, &sa, NULL);
+
 
 
     struct DatosSimulaciOn ddssp;
@@ -65,7 +93,7 @@ int main (int argc, char *argv[]){
 
 
     int numSemaforos=FI_getNSemAforos();
-    int sem_inicio=semget(IPC_PRIVATE, numSemaforos, IPC_CREAT | 0600);
+    sem_inicio=semget(IPC_PRIVATE, numSemaforos, IPC_CREAT | 0600);
     if(sem_inicio<0){
         printf("Error al crear semaforos...\n");
         return -1;
@@ -73,11 +101,12 @@ int main (int argc, char *argv[]){
 
 
     int tamMemComp=FI_getTamaNoMemoriaCompartida();
-    int shm_inicio=shmget(IPC_PRIVATE, tamMemComp, IPC_CREAT | 0600);
+    shm_inicio=shmget(IPC_PRIVATE, tamMemComp+3*sizeof(int), IPC_CREAT | 0600);
     if(shm_inicio<0){
         printf("Error al crear memoria compartida...\n");
         return -1;
     }
+    //memoria compartida en encina, lo más ajustado a lo que usemos (multiplo de 4)
 
 
     //INICIO
@@ -88,6 +117,70 @@ int main (int argc, char *argv[]){
     }
 
 
+
+    pid_t pid=fork();
+    if(pid==-1){
+        return -1;
+    }else if(pid==0){
+        pid_hijo=getpid();
+        err=FI_inicioFilOsofo(0);
+        if(err ==-1){
+            return -1;
+        }
+        
+        
+
+        while(1){
+            err=FI_puedoAndar();
+            if(err ==-1){
+                return -1;
+            }
+            
+            err=FI_pausaAndar();
+            if(err ==-1){
+                return -1;
+                
+            }
+
+            int zona=FI_andar();
+            if(zona ==-1){
+                return -1;
+            }else if(zona == ENTRADACOMEDOR){
+                FI_entrarAlComedor(0);
+                while(1){
+                    err=FI_puedoAndar();
+                    if(err ==-1){
+                        return -1;
+                    }
+                    
+                    err=FI_pausaAndar();
+                    if(err ==-1){
+                        return -1;
+                    }
+
+                    int zona2=FI_andar();
+                    if(zona2==-1){
+                        return -1;
+                    }else if(zona2 == SILLACOMEDOR){
+                        FI_cogerTenedor(TENEDORDERECHO);
+                        FI_cogerTenedor(TENEDORIZQUIERDO);
+                    }
+                }
+            }
+            
+            
+            
+        }
+        err= FI_finFilOsofo();
+        if(err ==-1){
+            return -1;
+        }
+
+        return 0;
+    }else{
+
+        wait(NULL);
+    }
 
 
     //ELIMINO IPCs
